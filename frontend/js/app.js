@@ -1,154 +1,94 @@
 
 // ======================================================
 // CLIENT FINANCIER
-// Gestion des sociétés, bilans, cours et indicateurs
-// Données temporaires de démonstration
+// Interface connectée à FastAPI et MariaDB
 // ======================================================
 
+const API_URL = "http://127.0.0.1:8000/api";
 
-// ======================================================
-// 1. DONNÉES DES SOCIÉTÉS
-// ======================================================
+// Données chargées depuis l'API
+let societes = [];
+let bilans = [];
+let coursBourse = [];
 
-let societes = [
-    { id: 1, nom: "NovaTech", symbole: "NVT", secteur: "Technologie", pays: "France" },
-    { id: 2, nom: "GreenEnergy", symbole: "GRE", secteur: "Energie", pays: "Allemagne" },
-    { id: 3, nom: "MediCare Plus", symbole: "MCP", secteur: "Sante", pays: "Belgique" },
-    { id: 4, nom: "AutoMotion", symbole: "ATM", secteur: "Automobile", pays: "France" }
-];
-
-let prochainId = 5;
 let idASupprimer = null;
 
 
 // ======================================================
-// 2. DONNÉES DES BILANS ANNUELS
+// 1. COMMUNICATION AVEC FASTAPI
 // ======================================================
 
-// Les chiffres d'affaires 2025 sont ceux du jeu de données.
-// Les autres montants sont provisoires pour la démonstration.
+async function requeteAPI(url, options = {}) {
+    const reponse = await fetch(url, {
+        ...options,
+        headers: {
+            "Content-Type": "application/json",
+            ...options.headers
+        }
+    });
 
-let bilans = [];
+    const texte = await reponse.text();
+    const donnees = texte ? JSON.parse(texte) : null;
 
-const donneesFinancieres = [
-    {
-        id: 1,
-        ca2025: 10500000,
-        resultat2025: 1260000,
-        actifs2025: 4200000,
-        passifs2025: 2800000,
-        dettes2025: 3500000,
-        capitaux2025: 5000000,
-        total2025: 8500000
-    },
-    {
-        id: 2,
-        ca2025: 15000000,
-        resultat2025: 1800000,
-        actifs2025: 6000000,
-        passifs2025: 3500000,
-        dettes2025: 5000000,
-        capitaux2025: 7000000,
-        total2025: 12000000
-    },
-    {
-        id: 3,
-        ca2025: 8100000,
-        resultat2025: 810000,
-        actifs2025: 3200000,
-        passifs2025: 2100000,
-        dettes2025: 2800000,
-        capitaux2025: 4200000,
-        total2025: 7000000
-    },
-    {
-        id: 4,
-        ca2025: 21000000,
-        resultat2025: 2100000,
-        actifs2025: 7500000,
-        passifs2025: 4300000,
-        dettes2025: 6500000,
-        capitaux2025: 9000000,
-        total2025: 15500000
+    if (!reponse.ok) {
+        throw new Error(
+            donnees?.detail || `Erreur HTTP ${reponse.status}`
+        );
     }
-];
 
-function genererBilans() {
-    const facteurs = {
-        2023: 0.78,
-        2024: 0.88,
-        2025: 1
-    };
-
-    donneesFinancieres.forEach(d => {
-        [2023, 2024, 2025].forEach(annee => {
-            const facteur = facteurs[annee];
-
-            bilans.push({
-                societe_id: d.id,
-                annee: annee,
-                chiffre_affaires: Math.round(d.ca2025 * facteur),
-                resultat_net: Math.round(d.resultat2025 * facteur),
-                actifs_courants: Math.round(d.actifs2025 * facteur),
-                passifs_courants: Math.round(d.passifs2025 * facteur),
-                dettes_totales: Math.round(d.dettes2025 * facteur),
-                capitaux_propres: Math.round(d.capitaux2025 * facteur),
-                total_actifs: Math.round(d.total2025 * facteur)
-            });
-        });
-    });
+    return donnees;
 }
 
-genererBilans();
-
 
 // ======================================================
-// 3. DONNÉES DES COURS DE BOURSE
+// 2. CHARGEMENT DES DONNÉES DEPUIS MARIADB
 // ======================================================
 
-// Moyennes de cours connues pour chaque société.
-// Les cours individuels ci-dessous sont provisoires.
+async function chargerDonnees() {
+    societes = await requeteAPI(`${API_URL}/societes`);
 
-let coursBourse = [];
+    const resultats = await Promise.all(
+        societes.map(async societe => {
+            const [bilansSociete, coursSociete] = await Promise.all([
+                requeteAPI(
+                    `${API_URL}/societes/${societe.id}/bilans`
+                ),
+                requeteAPI(
+                    `${API_URL}/societes/${societe.id}/cours`
+                )
+            ]);
 
-const donneesCours = [
-    { id: 1, prix: [125, 126, 127, 128, 129, 130, 130, 131, 132, 134.8] },
-    { id: 2, prix: [84, 85, 86, 87, 87, 88, 88, 89, 89, 87] },
-    { id: 3, prix: [55, 56, 57, 57, 58, 59, 59, 60, 60, 56.8] },
-    { id: 4, prix: [100, 101, 102, 103, 104, 105, 106, 107, 108, 111.9] }
-];
+            return {
+                bilans: bilansSociete,
+                cours: coursSociete
+            };
+        })
+    );
 
-function genererCours() {
-    donneesCours.forEach(d => {
-        d.prix.forEach((prix, index) => {
-            const jour = String(index + 2).padStart(2, "0");
+    bilans = resultats.flatMap(resultat => resultat.bilans);
+    coursBourse = resultats.flatMap(resultat => resultat.cours);
 
-            coursBourse.push({
-                societe_id: d.id,
-                date_cours: `2026-11-${jour}`,
-                cours_cloture: prix,
-                volume_echange: 10000 + (index * 1250) + (d.id * 500)
-            });
-        });
-    });
+    afficherSocietes();
+    actualiserListesSocietes();
+    afficherBilans();
+    afficherCours();
+    actualiserDashboard();
 }
 
-genererCours();
-
 
 // ======================================================
-// 4. OUTILS ET FORMATAGE
+// 3. OUTILS ET FORMATAGE
 // ======================================================
 
 const formatNombre = valeur =>
-    new Intl.NumberFormat("fr-FR").format(valeur);
+    new Intl.NumberFormat("fr-FR").format(Number(valeur));
 
 const formatMontant = valeur =>
     new Intl.NumberFormat("fr-FR", {
         style: "currency",
         currency: "EUR",
         maximumFractionDigits: 0
-    }).format(valeur);
+    }).format(Number(valeur));
 
 const formatCours = valeur =>
     new Intl.NumberFormat("fr-FR", {
@@ -156,7 +96,7 @@ const formatCours = valeur =>
         currency: "EUR",
         minimumFractionDigits: 2,
         maximumFractionDigits: 2
-    }).format(valeur);
+    }).format(Number(valeur));
 
 function obtenirNomSociete(id) {
     const societe = societes.find(s => s.id === Number(id));
@@ -165,12 +105,12 @@ function obtenirNomSociete(id) {
 
 function obtenirSymbole(id) {
     const societe = societes.find(s => s.id === Number(id));
-    return societe ? societe.symbole : "";
+    return societe ? societe.symbole_boursier : "";
 }
 
 
 // ======================================================
-// 5. NAVIGATION ENTRE LES PAGES
+// 4. NAVIGATION ENTRE LES PAGES
 // ======================================================
 
 const pages = {
@@ -206,7 +146,8 @@ document.querySelectorAll("[data-page]").forEach(lien => {
             element.classList.add("d-none");
         });
 
-        const pageSelectionnee = document.getElementById(`page-${page}`);
+        const pageSelectionnee =
+            document.getElementById(`page-${page}`);
 
         if (pageSelectionnee) {
             pageSelectionnee.classList.remove("d-none");
@@ -228,7 +169,7 @@ document.querySelectorAll("[data-page]").forEach(lien => {
 
 
 // ======================================================
-// 6. ÉLÉMENTS DES MODALES
+// 5. ÉLÉMENTS DES MODALES
 // ======================================================
 
 const modalSociete = new bootstrap.Modal(
@@ -243,7 +184,7 @@ const formSociete = document.getElementById("formSociete");
 
 
 // ======================================================
-// 7. AFFICHER LES SOCIÉTÉS
+// 6. AFFICHER LES SOCIÉTÉS
 // ======================================================
 
 function afficherSocietes() {
@@ -273,7 +214,7 @@ function afficherSocietes() {
         nom.appendChild(nomFort);
 
         const symbole = document.createElement("td");
-        symbole.textContent = societe.symbole;
+        symbole.textContent = societe.symbole_boursier;
 
         const secteur = document.createElement("td");
         secteur.textContent = societe.secteur;
@@ -290,7 +231,10 @@ function afficherSocietes() {
         modifier.title = "Modifier";
         modifier.setAttribute("aria-label", "Modifier " + societe.nom);
         modifier.innerHTML = '<i class="bi bi-pencil"></i>';
-        modifier.addEventListener("click", () => modifierSociete(societe.id));
+
+        modifier.addEventListener("click", () => {
+            modifierSociete(societe.id);
+        });
 
         const supprimer = document.createElement("button");
         supprimer.type = "button";
@@ -298,81 +242,99 @@ function afficherSocietes() {
         supprimer.title = "Supprimer";
         supprimer.setAttribute("aria-label", "Supprimer " + societe.nom);
         supprimer.innerHTML = '<i class="bi bi-trash"></i>';
-        supprimer.addEventListener("click", () => demanderSuppression(societe.id));
+
+        supprimer.addEventListener("click", () => {
+            demanderSuppression(societe.id);
+        });
 
         actions.append(modifier, supprimer);
-
         ligne.append(nom, symbole, secteur, pays, actions);
         liste.appendChild(ligne);
     });
-
-    actualiserListesSocietes();
 }
 
 
 // ======================================================
-// 8. AJOUTER UNE SOCIÉTÉ
+// 7. AJOUTER UNE SOCIÉTÉ
 // ======================================================
 
-document.getElementById("btnAjouterSociete").addEventListener("click", () => {
-    formSociete.reset();
+document.getElementById("btnAjouterSociete").addEventListener(
+    "click",
+    () => {
+        formSociete.reset();
 
-    document.getElementById("societeId").value = "";
-    document.getElementById("titreModalSociete").textContent =
-        "Ajouter une société";
+        document.getElementById("societeId").value = "";
 
-    document.getElementById("btnEnregistrerSociete").textContent =
-        "Enregistrer";
+        document.getElementById("titreModalSociete").textContent =
+            "Ajouter une société";
 
-    modalSociete.show();
-});
+        document.getElementById("btnEnregistrerSociete").textContent =
+            "Enregistrer";
+
+        modalSociete.show();
+    }
+);
 
 
 // ======================================================
-// 9. ENREGISTRER OU MODIFIER UNE SOCIÉTÉ
+// 8. AJOUTER OU MODIFIER VIA FASTAPI
 // ======================================================
 
-formSociete.addEventListener("submit", event => {
+formSociete.addEventListener("submit", async event => {
     event.preventDefault();
 
     const id = document.getElementById("societeId").value;
 
     const societe = {
         nom: document.getElementById("nom").value.trim(),
-        symbole: document.getElementById("symbole").value.trim().toUpperCase(),
+        symbole_boursier: document
+            .getElementById("symbole")
+            .value.trim()
+            .toUpperCase(),
         secteur: document.getElementById("secteur").value.trim(),
         pays: document.getElementById("pays").value.trim()
     };
 
-    if (!societe.nom || !societe.symbole || !societe.secteur || !societe.pays) {
+    if (
+        !societe.nom ||
+        !societe.symbole_boursier ||
+        !societe.secteur ||
+        !societe.pays
+    ) {
         alert("Veuillez remplir tous les champs.");
         return;
     }
 
-    if (id) {
-        const index = societes.findIndex(s => s.id === Number(id));
-
-        if (index !== -1) {
-            societes[index] = {
-                id: Number(id),
-                ...societe
-            };
+    try {
+        if (id) {
+            await requeteAPI(`${API_URL}/societes/${id}`, {
+                method: "PUT",
+                body: JSON.stringify(societe)
+            });
+        } else {
+            await requeteAPI(`${API_URL}/societes`, {
+                method: "POST",
+                body: JSON.stringify(societe)
+            });
         }
-    } else {
-        societes.push({
-            id: prochainId++,
-            ...societe
-        });
-    }
 
-    afficherSocietes();
-    modalSociete.hide();
-    formSociete.reset();
+        await chargerDonnees();
+
+        modalSociete.hide();
+        formSociete.reset();
+
+        alert(id
+            ? "Société modifiée avec succès."
+            : "Société ajoutée avec succès.");
+
+    } catch (erreur) {
+        alert("Erreur : " + erreur.message);
+    }
 });
 
 
 // ======================================================
-// 10. MODIFIER UNE SOCIÉTÉ
+// 9. MODIFIER UNE SOCIÉTÉ
 // ======================================================
 
 function modifierSociete(id) {
@@ -382,7 +344,10 @@ function modifierSociete(id) {
 
     document.getElementById("societeId").value = societe.id;
     document.getElementById("nom").value = societe.nom;
-    document.getElementById("symbole").value = societe.symbole;
+
+    document.getElementById("symbole").value =
+        societe.symbole_boursier;
+
     document.getElementById("secteur").value = societe.secteur;
     document.getElementById("pays").value = societe.pays;
 
@@ -397,7 +362,7 @@ function modifierSociete(id) {
 
 
 // ======================================================
-// 11. SUPPRESSION D'UNE SOCIÉTÉ
+// 10. SUPPRIMER UNE SOCIÉTÉ VIA FASTAPI
 // ======================================================
 
 function demanderSuppression(id) {
@@ -413,27 +378,34 @@ function demanderSuppression(id) {
     modalSuppression.show();
 }
 
-document.getElementById("btnConfirmerSuppression").addEventListener("click", () => {
-    if (idASupprimer === null) return;
+document.getElementById("btnConfirmerSuppression").addEventListener(
+    "click",
+    async () => {
+        if (idASupprimer === null) return;
 
-    societes = societes.filter(s => s.id !== idASupprimer);
+        try {
+            await requeteAPI(
+                `${API_URL}/societes/${idASupprimer}`,
+                { method: "DELETE" }
+            );
 
-    bilans = bilans.filter(b => b.societe_id !== idASupprimer);
-    coursBourse = coursBourse.filter(c => c.societe_id !== idASupprimer);
+            idASupprimer = null;
 
-    idASupprimer = null;
+            modalSuppression.hide();
 
-    afficherSocietes();
-    afficherBilans();
-    afficherCours();
-    actualiserListesSocietes();
+            await chargerDonnees();
 
-    modalSuppression.hide();
-});
+            alert("Société supprimée avec succès.");
+
+        } catch (erreur) {
+            alert("Erreur lors de la suppression : " + erreur.message);
+        }
+    }
+);
 
 
 // ======================================================
-// 12. LISTES DÉROULANTES DES SOCIÉTÉS
+// 11. LISTES DÉROULANTES DES SOCIÉTÉS
 // ======================================================
 
 function actualiserListesSocietes() {
@@ -461,8 +433,11 @@ function actualiserListesSocietes() {
 
         societes.forEach(societe => {
             const option = document.createElement("option");
+
             option.value = societe.id;
-            option.textContent = `${societe.nom} (${societe.symbole})`;
+            option.textContent =
+                `${societe.nom} (${societe.symbole_boursier})`;
+
             select.appendChild(option);
         });
 
@@ -474,13 +449,17 @@ function actualiserListesSocietes() {
 
 
 // ======================================================
-// 13. AFFICHER LES BILANS ANNUELS
+// 12. AFFICHER LES BILANS ANNUELS
 // ======================================================
 
 function afficherBilans() {
     const liste = document.getElementById("listeBilans");
-    const filtreSociete = document.getElementById("filtreBilanSociete").value;
-    const filtreAnnee = document.getElementById("filtreBilanAnnee").value;
+
+    const filtreSociete =
+        document.getElementById("filtreBilanSociete").value;
+
+    const filtreAnnee =
+        document.getElementById("filtreBilanAnnee").value;
 
     liste.innerHTML = "";
 
@@ -528,20 +507,32 @@ function afficherBilans() {
     });
 }
 
-document.getElementById("filtreBilanSociete").addEventListener("change", afficherBilans);
-document.getElementById("filtreBilanAnnee").addEventListener("change", afficherBilans);
+document.getElementById("filtreBilanSociete").addEventListener(
+    "change",
+    afficherBilans
+);
+
+document.getElementById("filtreBilanAnnee").addEventListener(
+    "change",
+    afficherBilans
+);
 
 
 // ======================================================
-// 14. AFFICHER LES COURS DE BOURSE
+// 13. AFFICHER LES COURS DE BOURSE
 // ======================================================
 
 function afficherCours() {
     const liste = document.getElementById("listeCours");
 
-    const societeId = document.getElementById("filtreCoursSociete").value;
-    const dateDebut = document.getElementById("dateDebutCours").value;
-    const dateFin = document.getElementById("dateFinCours").value;
+    const societeId =
+        document.getElementById("filtreCoursSociete").value;
+
+    const dateDebut =
+        document.getElementById("dateDebutCours").value;
+
+    const dateFin =
+        document.getElementById("dateFinCours").value;
 
     liste.innerHTML = "";
 
@@ -549,8 +540,11 @@ function afficherCours() {
         const societeOK = !societeId ||
             cours.societe_id === Number(societeId);
 
-        const debutOK = !dateDebut || cours.date_cours >= dateDebut;
-        const finOK = !dateFin || cours.date_cours <= dateFin;
+        const debutOK = !dateDebut ||
+            cours.date_cours >= dateDebut;
+
+        const finOK = !dateFin ||
+            cours.date_cours <= dateFin;
 
         return societeOK && debutOK && finOK;
     });
@@ -570,7 +564,8 @@ function afficherCours() {
 
         const valeurs = [
             obtenirNomSociete(cours.societe_id),
-            new Date(cours.date_cours + "T00:00:00").toLocaleDateString("fr-FR"),
+            new Date(cours.date_cours + "T00:00:00")
+                .toLocaleDateString("fr-FR"),
             formatCours(cours.cours_cloture),
             formatNombre(cours.volume_echange)
         ];
@@ -585,30 +580,37 @@ function afficherCours() {
     });
 }
 
-document.getElementById("btnFiltrerCours").addEventListener("click", afficherCours);
+document.getElementById("btnFiltrerCours").addEventListener(
+    "click",
+    afficherCours
+);
 
 
 // ======================================================
-// 15. FONCTIONS DE CALCUL DES INDICATEURS
+// 14. CALCUL DES INDICATEURS FINANCIERS
 // ======================================================
 
 function calculerMargeNette(resultatNet, chiffreAffaires) {
     if (chiffreAffaires === 0) return null;
+
     return (resultatNet / chiffreAffaires) * 100;
 }
 
 function calculerLiquidite(actifsCourants, passifsCourants) {
     if (passifsCourants === 0) return null;
+
     return actifsCourants / passifsCourants;
 }
 
 function calculerEndettement(dettesTotales, capitauxPropres) {
     if (capitauxPropres === 0) return null;
+
     return dettesTotales / capitauxPropres;
 }
 
 function calculerRendementBoursier(coursInitial, coursFinal) {
     if (coursInitial === 0) return null;
+
     return ((coursFinal - coursInitial) / coursInitial) * 100;
 }
 
@@ -627,7 +629,7 @@ function calculerMoyenneMobile(cours, periode) {
 
 
 // ======================================================
-// 16. AFFICHER LES INDICATEURS FINANCIERS
+// 15. AFFICHER LES INDICATEURS
 // ======================================================
 
 function afficherIndicateurs() {
@@ -642,7 +644,8 @@ function afficherIndicateurs() {
     const message = document.getElementById("messageIndicateurs");
 
     if (!societeId) {
-        message.textContent = "Sélectionnez une société pour commencer.";
+        message.textContent =
+            "Sélectionnez une société pour commencer.";
         return;
     }
 
@@ -652,7 +655,8 @@ function afficherIndicateurs() {
     );
 
     if (!bilan) {
-        message.textContent = "Aucun bilan disponible pour cette sélection.";
+        message.textContent =
+            "Aucun bilan disponible pour cette sélection.";
         return;
     }
 
@@ -675,10 +679,13 @@ function afficherIndicateurs() {
         .filter(c => c.societe_id === societeId)
         .sort((a, b) => a.date_cours.localeCompare(b.date_cours));
 
-    const prix = cours.map(c => c.cours_cloture);
+    const prix = cours.map(c => Number(c.cours_cloture));
 
     const rendement = prix.length >= 2
-        ? calculerRendementBoursier(prix[0], prix[prix.length - 1])
+        ? calculerRendementBoursier(
+            prix[0],
+            prix[prix.length - 1]
+        )
         : null;
 
     const moyenne = calculerMoyenneMobile(prix, 5);
@@ -709,23 +716,27 @@ document.getElementById("btnCalculerIndicateurs").addEventListener(
 
 
 // ======================================================
-// 17. ACTUALISER LE TABLEAU DE BORD
+// 16. ACTUALISER LE TABLEAU DE BORD
 // ======================================================
 
 function actualiserDashboard() {
     const bilans2025 = bilans.filter(b => b.annee === 2025);
 
     const chiffreAffaires = bilans2025.reduce(
-        (total, bilan) => total + bilan.chiffre_affaires,
+        (total, bilan) => total + Number(bilan.chiffre_affaires),
         0
     );
 
     const marges = bilans2025.map(b =>
-        calculerMargeNette(b.resultat_net, b.chiffre_affaires)
-    );
+        calculerMargeNette(
+            Number(b.resultat_net),
+            Number(b.chiffre_affaires)
+        )
+    ).filter(marge => marge !== null);
 
     const margeMoyenne = marges.length
-        ? marges.reduce((total, valeur) => total + valeur, 0) / marges.length
+        ? marges.reduce((total, valeur) => total + valeur, 0)
+            / marges.length
         : 0;
 
     document.getElementById("chiffreAffairesTotal").textContent =
@@ -742,22 +753,29 @@ function actualiserDashboard() {
 
     document.getElementById("dashboardCours").textContent =
         coursBourse.length;
+
+    document.getElementById("dashboardSocietes").textContent =
+        societes.length;
 }
 
 
 // ======================================================
-// 18. INITIALISATION DE L'APPLICATION
+// 17. INITIALISATION DE L'APPLICATION
 // ======================================================
 
-function initialiserApplication() {
-    afficherSocietes();
+async function initialiserApplication() {
+    try {
+        await chargerDonnees();
+        console.log("Client Financier : données chargées depuis MariaDB.");
+    } catch (erreur) {
+        console.error("Erreur de chargement :", erreur);
 
-    actualiserListesSocietes();
-
-    afficherBilans();
-    afficherCours();
-
-    actualiserDashboard();
+        alert(
+            "Impossible de charger les données depuis FastAPI.\n" +
+            "Vérifiez que le serveur FastAPI est démarré.\n\n" +
+            erreur.message
+        );
+    }
 }
 
 initialiserApplication();

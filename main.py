@@ -1,10 +1,9 @@
-
 from datetime import date
 from decimal import Decimal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 import depot
 from modeles import Societe
@@ -27,11 +26,14 @@ app.add_middleware(
 
 
 # Modèle de réception des données d'une société
+
 class SocieteSchema(BaseModel):
-    nom: str
-    symbole_boursier: str
-    secteur: str
-    pays: str
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    nom: str = Field(min_length=1, max_length=150)
+    symbole_boursier: str = Field(min_length=1, max_length=10)
+    secteur: str = Field(min_length=1, max_length=100)
+    pays: str = Field(min_length=1, max_length=100)
 
 
 # Vérification de fonctionnement
