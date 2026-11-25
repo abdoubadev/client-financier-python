@@ -38,3 +38,18 @@ La tentative a echoue. La chaine saisie a ete traitee comme une valeur de recher
 **Cause :** conflit de guillemets et d'echappement entre la commande PowerShell et le code Python.
 
 **Solution :** le test a ete relance dans l'interpreteur interactif Python, en executant les instructions separement. Le test a alors abouti au resultat attendu.
+
+
+## 3. Erreur lors de l'execution des scripts SQL
+
+**Erreur :** la redirection classique avec le symbole `<` ne fonctionne pas dans le terminal PowerShell.
+
+**Cause :** PowerShell ne gere pas cette syntaxe de redirection comme Bash.
+
+**Solution :** utiliser `Get-Content` pour transmettre le contenu du fichier SQL a MariaDB :
+
+```powershell
+Get-Content sql/001_jeu_de_test.sql | mariadb -u app_financier -p client_financier
+```
+
+**Resultat :** le script SQL a ete execute avec succes et les donnees ont ete chargees dans la base.
