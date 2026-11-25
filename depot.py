@@ -1,4 +1,3 @@
-from datetime import date
 
 from db import get_connection
 from modeles import Societe, BilanAnnuel, CoursBourse
@@ -78,6 +77,67 @@ def ajouter_societe(societe):
             connexion.commit()
 
             return societe.id
+
+    except Exception:
+        connexion.rollback()
+        raise
+
+    finally:
+        connexion.close()
+
+
+def modifier_societe(societe_id, societe):
+    """Modifie les informations d'une société existante."""
+    connexion = get_connection()
+
+    try:
+        with connexion.cursor() as curseur:
+            requete = """
+                UPDATE societe
+                SET nom = %s,
+                    symbole_boursier = %s,
+                    secteur = %s,
+                    pays = %s
+                WHERE id = %s
+            """
+
+            curseur.execute(
+                requete,
+                (
+                    societe.nom,
+                    societe.symbole_boursier,
+                    societe.secteur,
+                    societe.pays,
+                    societe_id,
+                ),
+            )
+
+            connexion.commit()
+            return curseur.rowcount > 0
+
+    except Exception:
+        connexion.rollback()
+        raise
+
+    finally:
+        connexion.close()
+
+
+def supprimer_societe(societe_id):
+    """Supprime une société à partir de son identifiant."""
+    connexion = get_connection()
+
+    try:
+        with connexion.cursor() as curseur:
+            requete = """
+                DELETE FROM societe
+                WHERE id = %s
+            """
+
+            curseur.execute(requete, (societe_id,))
+
+            connexion.commit()
+            return curseur.rowcount > 0
 
     except Exception:
         connexion.rollback()
